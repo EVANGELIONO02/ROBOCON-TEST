@@ -47,6 +47,18 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
 )
 
+# Select the CAN node role at configure time.
+set(CAN_NODE_ROLE "MASTER" CACHE STRING "CAN node role")
+set_property(CACHE CAN_NODE_ROLE PROPERTY STRINGS MASTER SLAVE)
+
+if(CAN_NODE_ROLE STREQUAL "MASTER")
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE CAN_NODE_MASTER)
+elseif(CAN_NODE_ROLE STREQUAL "SLAVE")
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE CAN_NODE_SLAVE)
+else()
+    message(FATAL_ERROR "CAN_NODE_ROLE must be MASTER or SLAVE")
+endif()
+
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
