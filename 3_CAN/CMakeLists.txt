@@ -59,6 +59,10 @@ else()
     message(FATAL_ERROR "CAN_NODE_ROLE must be MASTER or SLAVE")
 endif()
 
+if(CAN_LOOPBACK_TEST)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE CAN_LOOPBACK_TEST)
+endif()
+
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths

@@ -24,6 +24,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 
 /* USER CODE END Includes */
 
@@ -69,6 +70,42 @@ static void UART_PrintHex(const char *prefix, uint8_t data)
   (void)HAL_UART_Transmit(&huart1, (uint8_t *)message, sizeof(message) - 1U, HAL_MAX_DELAY);
 } // UART_PrintHex
 
+static void UART_PrintCanStatus(const char *prefix)
+{
+  char message[80];
+  int length = snprintf(
+      message,
+      sizeof(message),
+      "%s state=%lu error=0x%08lX free=%lu\r\n",
+      prefix,
+      (unsigned long)HAL_CAN_GetState(&hcan),
+      (unsigned long)HAL_CAN_GetError(&hcan),
+      (unsigned long)HAL_CAN_GetTxMailboxesFreeLevel(&hcan));
+
+  if (length > 0)
+  {
+    (void)HAL_UART_Transmit(&huart1, (uint8_t *)message, (uint16_t)length, HAL_MAX_DELAY);
+  }
+} // UART_PrintCanStatus
+
+static void UART_PrintCanRegisters(void)
+{
+  char message[128];
+  int length = snprintf(
+      message,
+      sizeof(message),
+      "CAN BTR=0x%08lX TSR=0x%08lX RF0R=0x%08lX ESR=0x%08lX\r\n",
+      (unsigned long)CAN1->BTR,
+      (unsigned long)CAN1->TSR,
+      (unsigned long)CAN1->RF0R,
+      (unsigned long)CAN1->ESR);
+
+  if (length > 0)
+  {
+    (void)HAL_UART_Transmit(&huart1, (uint8_t *)message, (uint16_t)length, HAL_MAX_DELAY);
+  }
+} // UART_PrintCanRegisters
+
 static void CAN_MasterTask(void)
 {
   static GPIO_PinState last_switch_state = GPIO_PIN_SET;
@@ -86,20 +123,27 @@ static void CAN_MasterTask(void)
       if (CAN_SendByte(CAN_ID_COMMAND, CAN_DATA_COMMAND) == HAL_OK)
       {
         UART_PrintHex("TX", CAN_DATA_COMMAND);
+        HAL_Delay(1);
+        UART_PrintCanRegisters();
       }
-      else
-      {
-        const char message[] = "TX ERROR\r\n";
-        (void)HAL_UART_Transmit(&huart1, (const uint8_t *)message, sizeof(message) - 1U, HAL_MAX_DELAY);
-      }
+    else
+    {
+      UART_PrintCanStatus("TX ERROR");
     }
+  }
   }
 
   last_switch_state = switch_state;
 
   while (CAN_ReadByte(&rx_id, &rx_data))
   {
-    if (rx_id == CAN_ID_RESPONSE)
+    if (
+#if defined(CAN_LOOPBACK_TEST)
+        rx_id == CAN_ID_COMMAND
+#else
+        rx_id == CAN_ID_RESPONSE
+#endif
+    )
     {
       UART_PrintHex("RX", rx_data);
     }
@@ -159,8 +203,16 @@ int main(void)
   /* USER CODE BEGIN 2 */
   if (CAN_Start() != HAL_OK)
   {
+    UART_PrintCanStatus("CAN START ERROR");
     Error_Handler();
   }
+
+#if defined(CAN_LOOPBACK_TEST)
+  {
+    const char message[] = "MODE: LOOPBACK\r\n";
+    (void)HAL_UART_Transmit(&huart1, (const uint8_t *)message, sizeof(message) - 1U, HAL_MAX_DELAY);
+  }
+#endif
 
   /* USER CODE END 2 */
 
@@ -178,7 +230,7 @@ int main(void)
 #endif
   }
   /* USER CODE END 3 */
-} // main
+}
 
 /**
   * @brief System Clock Configuration

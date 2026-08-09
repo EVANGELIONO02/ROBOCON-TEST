@@ -32,6 +32,16 @@
             }
         },
         {
+            "name": "Debug-Loopback",
+            "inherits": "Debug-Master",
+            "cacheVariables": {
+                "CAN_LOOPBACK_TEST": {
+                    "type": "BOOL",
+                    "value": "ON"
+                }
+            }
+        },
+        {
             "name": "Release",
             "inherits": "default",
             "cacheVariables": {
@@ -51,6 +61,10 @@
         {
             "name": "Debug-Slave",
             "configurePreset": "Debug-Slave"
+        },
+        {
+            "name": "Debug-Loopback",
+            "configurePreset": "Debug-Loopback"
         },
         {
             "name": "Release",
