@@ -29,18 +29,26 @@ extern "C" {
 #include "main.h"
 
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
 
 /* USER CODE END Includes */
 
 extern CAN_HandleTypeDef hcan;
 
 /* USER CODE BEGIN Private defines */
+#define CAN_ID_COMMAND      0x101U
+#define CAN_ID_RESPONSE     0x102U
+#define CAN_DATA_COMMAND    0x11U
+#define CAN_DATA_RESPONSE   0x22U
 
 /* USER CODE END Private defines */
 
 void MX_CAN_Init(void);
 
 /* USER CODE BEGIN Prototypes */
+HAL_StatusTypeDef CAN_Start(void);
+HAL_StatusTypeDef CAN_SendByte(uint16_t standard_id, uint8_t data);
+bool CAN_ReadByte(uint16_t *standard_id, uint8_t *data);
 
 /* USER CODE END Prototypes */
 

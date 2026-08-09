@@ -56,6 +56,72 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#if defined(CAN_NODE_MASTER)
+static void UART_PrintHex(const char *prefix, uint8_t data)
+{
+  char message[] = "??: 0x00\r\n";
+  const char hex[] = "0123456789ABCDEF";
+
+  message[0] = prefix[0];
+  message[1] = prefix[1];
+  message[6] = hex[(data >> 4) & 0x0FU];
+  message[7] = hex[data & 0x0FU];
+  (void)HAL_UART_Transmit(&huart1, (uint8_t *)message, sizeof(message) - 1U, HAL_MAX_DELAY);
+} // UART_PrintHex
+
+static void CAN_MasterTask(void)
+{
+  static GPIO_PinState last_switch_state = GPIO_PIN_SET;
+  GPIO_PinState switch_state = HAL_GPIO_ReadPin(SWITCH_GPIO_Port, SWITCH_Pin);
+  uint16_t rx_id;
+  uint8_t rx_data;
+
+  if ((last_switch_state == GPIO_PIN_SET) && (switch_state == GPIO_PIN_RESET))
+  {
+    HAL_Delay(20);
+    switch_state = HAL_GPIO_ReadPin(SWITCH_GPIO_Port, SWITCH_Pin);
+
+    if (switch_state == GPIO_PIN_RESET)
+    {
+      if (CAN_SendByte(CAN_ID_COMMAND, CAN_DATA_COMMAND) == HAL_OK)
+      {
+        UART_PrintHex("TX", CAN_DATA_COMMAND);
+      }
+      else
+      {
+        const char message[] = "TX ERROR\r\n";
+        (void)HAL_UART_Transmit(&huart1, (const uint8_t *)message, sizeof(message) - 1U, HAL_MAX_DELAY);
+      }
+    }
+  }
+
+  last_switch_state = switch_state;
+
+  while (CAN_ReadByte(&rx_id, &rx_data))
+  {
+    if (rx_id == CAN_ID_RESPONSE)
+    {
+      UART_PrintHex("RX", rx_data);
+    }
+  }
+} // master task
+#endif
+
+#if defined(CAN_NODE_SLAVE)
+static void CAN_SlaveTask(void)
+{
+  uint16_t rx_id;
+  uint8_t rx_data;
+
+  while (CAN_ReadByte(&rx_id, &rx_data))
+  {
+    (void)rx_id;
+    (void)rx_data;
+    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    (void)CAN_SendByte(CAN_ID_RESPONSE, CAN_DATA_RESPONSE);
+  }
+} // slave task
+#endif
 
 /* USER CODE END 0 */
 
@@ -91,6 +157,10 @@ int main(void)
   MX_CAN_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  if (CAN_Start() != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   /* USER CODE END 2 */
 
@@ -101,9 +171,14 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+#if defined(CAN_NODE_MASTER)
+    CAN_MasterTask();
+#elif defined(CAN_NODE_SLAVE)
+    CAN_SlaveTask();
+#endif
   }
   /* USER CODE END 3 */
-}
+} // main
 
 /**
   * @brief System Clock Configuration
