@@ -107,10 +107,11 @@ static void CAN_SlaveTask(void)
 
   while (CAN_ReadByte(&rx_id, &rx_data))
   {
-    (void)rx_id;
-    (void)rx_data;
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    (void)CAN_SendByte(CAN_ID_RESPONSE, CAN_DATA_RESPONSE);
+    if ((rx_id == CAN_ID_COMMAND) && (rx_data == CAN_DATA_COMMAND))
+    {
+      HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+      (void)CAN_SendByte(CAN_ID_RESPONSE, CAN_DATA_RESPONSE);
+    }
   }
 } // slave task
 #endif
