@@ -57,17 +57,10 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 #if defined(CAN_NODE_MASTER)
-static void UART_PrintHex(const char *prefix, uint8_t data)
+static void UART_SendByte(uint8_t data)
 {
-  char message[] = "??: 0x00\r\n";
-  const char hex[] = "0123456789ABCDEF";
-
-  message[0] = prefix[0];
-  message[1] = prefix[1];
-  message[6] = hex[(data >> 4) & 0x0FU];
-  message[7] = hex[data & 0x0FU];
-  (void)HAL_UART_Transmit(&huart1, (uint8_t *)message, sizeof(message) - 1U, HAL_MAX_DELAY);
-} // UART_PrintHex
+  (void)HAL_UART_Transmit(&huart1, &data, 1U, HAL_MAX_DELAY);
+} // UART_SendByte
 
 static void CAN_MasterTask(void)
 {
@@ -85,7 +78,6 @@ static void CAN_MasterTask(void)
     {
       if (CAN_SendByte(CAN_ID_COMMAND, CAN_DATA_COMMAND) == HAL_OK)
       {
-        UART_PrintHex("TX", CAN_DATA_COMMAND);
       }
       else
       {
@@ -101,7 +93,7 @@ static void CAN_MasterTask(void)
   {
     if (rx_id == CAN_ID_RESPONSE)
     {
-      UART_PrintHex("RX", rx_data);
+      UART_SendByte(rx_data);
     }
   }
 } // master task
@@ -178,7 +170,7 @@ int main(void)
 #endif
   }
   /* USER CODE END 3 */
-} // main
+}
 
 /**
   * @brief System Clock Configuration

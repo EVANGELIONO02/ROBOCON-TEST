@@ -2,13 +2,13 @@
 CAD.formats=
 CAD.pinconfig=
 CAD.provider=
-CAN.BS2=CAN_BS2_2TQ
+CAN.BS1=CAN_BS1_6TQ
 CAN.CalculateBaudRate=500000
 CAN.CalculateTimeBit=2000
-CAN.CalculateTimeQuantum=500.0
-CAN.IPParameters=CalculateTimeQuantum,CalculateTimeBit,CalculateBaudRate,Prescaler,BS2,NART
+CAN.CalculateTimeQuantum=250.0
+CAN.IPParameters=CalculateTimeQuantum,CalculateTimeBit,CalculateBaudRate,Prescaler,NART,BS1
 CAN.NART=ENABLE
-CAN.Prescaler=18
+CAN.Prescaler=9
 File.Version=6
 GPIO.groupedBy=Group By Peripherals
 KeepUserPlacement=false
