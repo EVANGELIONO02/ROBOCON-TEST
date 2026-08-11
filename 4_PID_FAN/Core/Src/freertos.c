@@ -24,8 +24,6 @@
 #include "cmsis_os.h"
 #include "adc.h"
 #include "TB6612.h"
-#include "usart.h"
-#include <stdio.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -43,7 +41,6 @@
 #define MOTOR_SPEED_MAX      100U
 #define ADC_CENTER           2048U
 #define ADC_DEADBAND         120U
-#define VOFA_SEND_PERIOD_MS  50U
 
 /* USER CODE END PD */
 
@@ -54,15 +51,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-static volatile uint32_t g_pot_adc_value = 0U;
-static volatile uint8_t g_motor_speed = 0U;
-static volatile int8_t g_motor_direction = 0;
-static osThreadId_t vofaTelemetryTaskHandle;
-static const osThreadAttr_t vofaTelemetryTask_attributes = {
-  .name = "vofaTelemetryTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
-};
 
 /* USER CODE END Variables */
 /* Definitions for motorControlTask */
@@ -76,11 +64,7 @@ const osThreadAttr_t motorControlTask_attributes = {
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 static uint8_t Potentiometer_ToSpeed(uint32_t adc_value);
-static int8_t Potentiometer_ToDirection(uint32_t adc_value, uint8_t speed);
 static void Potentiometer_ToMotor(uint32_t adc_value, uint8_t speed);
-static void VOFA_SendMotorData(uint32_t adc_value, uint8_t speed,
-                               int8_t direction);
-static void StartVofaTelemetryTask(void *argument);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -121,8 +105,6 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  vofaTelemetryTaskHandle = osThreadNew(StartVofaTelemetryTask, NULL,
-                                        &vofaTelemetryTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -143,7 +125,6 @@ void StartMotorControlTask(void *argument)
   /* USER CODE BEGIN StartMotorControlTask */
   uint32_t adc_value;
   uint8_t speed;
-  int8_t direction;
 
   HAL_ADCEx_Calibration_Start(&hadc1);
   TB6612_Init();
@@ -157,12 +138,6 @@ void StartMotorControlTask(void *argument)
       {
         adc_value = HAL_ADC_GetValue(&hadc1);
         speed = Potentiometer_ToSpeed(adc_value);
-        direction = Potentiometer_ToDirection(adc_value, speed);
-
-        g_pot_adc_value = adc_value;
-        g_motor_speed = speed;
-        g_motor_direction = direction;
-
         Potentiometer_ToMotor(adc_value, speed);
       }
 
@@ -172,32 +147,6 @@ void StartMotorControlTask(void *argument)
     osDelay(10);
   }
   /* USER CODE END StartMotorControlTask */
-}
-
-/* USER CODE BEGIN Header_StartVofaTelemetryTask */
-/**
-  * @brief  Function implementing the vofaTelemetryTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartVofaTelemetryTask */
-static void StartVofaTelemetryTask(void *argument)
-{
-  /* USER CODE BEGIN StartVofaTelemetryTask */
-  uint32_t adc_value;
-  uint8_t speed;
-  int8_t direction;
-
-  for(;;)
-  {
-    adc_value = g_pot_adc_value;
-    speed = g_motor_speed;
-    direction = g_motor_direction;
-
-    VOFA_SendMotorData(adc_value, speed, direction);
-    osDelay(VOFA_SEND_PERIOD_MS);
-  }
-  /* USER CODE END StartVofaTelemetryTask */
 }
 
 static uint8_t Potentiometer_ToSpeed(uint32_t adc_value)
@@ -238,16 +187,6 @@ static uint8_t Potentiometer_ToSpeed(uint32_t adc_value)
   return (uint8_t)speed;
 }
 
-static int8_t Potentiometer_ToDirection(uint32_t adc_value, uint8_t speed)
-{
-  if (speed == 0U)
-  {
-    return 0;
-  }
-
-  return (adc_value < ADC_CENTER) ? -1 : 1;
-}
-
 static void Potentiometer_ToMotor(uint32_t adc_value, uint8_t speed)
 {
   if (speed == 0U)
@@ -263,20 +202,6 @@ static void Potentiometer_ToMotor(uint32_t adc_value, uint8_t speed)
   else
   {
     TB6612_Forward(speed);
-  }
-}
-
-static void VOFA_SendMotorData(uint32_t adc_value, uint8_t speed,
-                               int8_t direction)
-{
-  char tx_buffer[40];
-  int length = snprintf(tx_buffer, sizeof(tx_buffer), "%lu,%u,%d\r\n",
-                        adc_value, speed, direction);
-
-  if (length > 0)
-  {
-    HAL_UART_Transmit(&huart1, (uint8_t *)tx_buffer,
-                      (uint16_t)length, 10U);
   }
 }
 
