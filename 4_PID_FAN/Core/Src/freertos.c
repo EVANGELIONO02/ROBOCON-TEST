@@ -202,9 +202,8 @@ static void StartVofaTelemetryTask(void *argument)
 
 static uint8_t Potentiometer_ToSpeed(uint32_t adc_value)
 {
-  uint32_t offset;
-  uint32_t effective_range;
-  uint32_t half_range;
+  uint32_t active_value;
+  uint32_t active_range;
   uint32_t speed;
 
   if ((adc_value >= (ADC_CENTER - ADC_DEADBAND)) &&
@@ -215,31 +214,21 @@ static uint8_t Potentiometer_ToSpeed(uint32_t adc_value)
 
   if (adc_value < ADC_CENTER)
   {
-    offset = (ADC_CENTER - ADC_DEADBAND) - adc_value;
-    effective_range = ADC_CENTER - ADC_DEADBAND;
+    active_value = (ADC_CENTER - ADC_DEADBAND) - adc_value;
+    active_range = ADC_CENTER - ADC_DEADBAND;
   }
   else
   {
-    offset = adc_value - (ADC_CENTER + ADC_DEADBAND);
-    effective_range = ADC_FULL_SCALE - (ADC_CENTER + ADC_DEADBAND);
+    active_value = adc_value - (ADC_CENTER + ADC_DEADBAND);
+    active_range = ADC_FULL_SCALE - (ADC_CENTER + ADC_DEADBAND);
   }
 
-  if (effective_range == 0U)
+  if (active_range == 0U)
   {
     return 0U;
   }
 
-  half_range = effective_range / 2U;
-
-  if (offset <= half_range)
-  {
-    speed = (offset * MOTOR_SPEED_MAX * 2U) / effective_range;
-  }
-  else
-  {
-    speed = MOTOR_SPEED_MAX
-          - (((offset - half_range) * MOTOR_SPEED_MAX * 2U) / effective_range);
-  }
+  speed = (active_value * MOTOR_SPEED_MAX) / active_range;
 
   if (speed > MOTOR_SPEED_MAX)
   {
