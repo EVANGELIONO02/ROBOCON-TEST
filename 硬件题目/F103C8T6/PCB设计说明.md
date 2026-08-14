@@ -16,7 +16,7 @@
 - USART1 串口接口，用于串口下载和通信；串口接口引出 5 V、GND、TX、RX；
 - Type-C 外部 5 V 供电接口；
 - 独立 CAN 端子，便于 CAN 通信；
-- 引出 PA0~PA8、PA15、PB0~PB9 GPIO。
+- 引出 PA0 至 PA8、PA15、PB0 至 PB9 GPIO。
 
 PCB 采用四层结构：顶层、GND 层、POWER 层和底层。设计目标是在满足最小系统功能的基础上，保证 SWD 与 CAN 等关键信号的布线质量，并提供稳定的电源和地参考平面。
 
@@ -121,7 +121,7 @@ CAN 端子附近布置 CANH、CANL 相关电路，缩短 CAN 差分信号至接�
 | CAN 差分信号 | CANH、CANL | 差分对布线、阻抗匹配、长度尽量匹配 |
 | 电源信号 | 5 V、3.3 V、GND | 使用 POWER 层和 GND 层进行分配 |
 | 串口信号 | USART1 TX、RX | 常规数字信号布线 |
-| GPIO 信号 | PA0~PA8、PA15、PB0~PB9 | 常规低速数字信号布线 |
+| GPIO 信号 | PA0 至 PA8、PA15、PB0 至 PB9 | 常规低速数字信号布线 |
 | 指示灯信号 | 电源 LED、功能 LED | 常规低速信号布线 |
 
 ## 7. 测试与验证
@@ -140,7 +140,7 @@ CAN 端子附近布置 CANH、CANL 相关电路，缩短 CAN 差分信号至接�
 - 使用 USART1 检查串口下载和串口通信功能；
 - 使用功能指示灯进行 GPIO 输出测试；
 - 检查 CAN 端子通信功能；
-- 检查 PA0~PA8、PA15、PB0~PB9 GPIO 引出功能。
+- 检查 PA0 至 PA8、PA15、PB0 至 PB9 GPIO 引出功能。
 
 ### 7.3 EMC 测试
 
