@@ -22,15 +22,14 @@
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
 #include "adc.h"
 #include "tim.h"
 #include "TB6612.h"
 #include "usart.h"
 #include <stdio.h>
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,9 +53,6 @@ typedef struct {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define ADC_FULL_SCALE          4095U
-#define MOTOR_SPEED_MAX         100U
-#define ADC_CENTER              2048U
-#define ADC_DEADBAND            120U
 
 #define INPUT_PERIOD_MS         10U
 #define MODE_SCAN_PERIOD_MS     20U
@@ -74,7 +70,7 @@ typedef struct {
 #define POSITION_TOLERANCE_DEG  2U
 #define POSITION_MIN_PWM        20U
 
-#define SPEED_PID_KP            0.50f
+#define SPEED_PID_KP            0.00f
 #define SPEED_PID_KI            0.00f
 #define SPEED_PID_KD            0.00f
 #define POSITION_PID_KP         0.80f
@@ -98,8 +94,6 @@ static volatile ControlMode g_control_mode = CONTROL_MODE_SPEED;
 static volatile uint8_t g_reset_controllers = 1U;
 
 /* InputTask writes these target values. PID tasks read them. */
-static volatile uint8_t g_target_percent = 0U;
-static volatile int8_t g_target_direction = 0;
 static volatile int32_t g_target_speed_cps = 0;
 static volatile uint16_t g_target_position_degrees = 0U;
 
@@ -175,10 +169,7 @@ const osThreadAttr_t pidTuningTask_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-static uint8_t Potentiometer_ToSpeedPercent(uint32_t adc_value);
-static int8_t Potentiometer_ToDirection(uint32_t adc_value,
-                                        uint8_t speed_percent);
-static int32_t SpeedPercent_ToCountsPerSecond(uint8_t speed_percent);
+static int32_t Adc_ToTargetSpeedCountsPerSecond(uint32_t adc_value);
 static uint16_t Adc_ToTargetPositionDegrees(uint32_t adc_value);
 static GPIO_PinState ModeButton_Read(void);
 static int16_t Encoder_UpdatePositionCounts(void);
@@ -275,8 +266,6 @@ void StartInputTask(void *argument)
 {
   /* USER CODE BEGIN StartInputTask */
   uint32_t adc_value;
-  uint8_t target_percent;
-  int8_t target_direction;
 
   HAL_ADCEx_Calibration_Start(&hadc1);
 
@@ -287,13 +276,7 @@ void StartInputTask(void *argument)
       if (HAL_ADC_PollForConversion(&hadc1, 10U) == HAL_OK)
       {
         adc_value = HAL_ADC_GetValue(&hadc1);
-        target_percent = Potentiometer_ToSpeedPercent(adc_value);
-        target_direction = Potentiometer_ToDirection(adc_value,
-                                                     target_percent);
-
-        g_target_percent = target_percent;
-        g_target_direction = target_direction;
-        g_target_speed_cps = SpeedPercent_ToCountsPerSecond(target_percent);
+        g_target_speed_cps = Adc_ToTargetSpeedCountsPerSecond(adc_value);
         g_target_position_degrees = Adc_ToTargetPositionDegrees(adc_value);
       }
 
@@ -377,10 +360,9 @@ void StartSpeedPidTask(void *argument)
 
     if (g_control_mode == CONTROL_MODE_SPEED)
     {
-      uint8_t target_percent = g_target_percent;
-      int8_t direction = g_target_direction;
+      int32_t target_cps = g_target_speed_cps;
 
-      if ((target_percent == 0U) || (direction == 0))
+      if (target_cps == 0)
       {
         Motor_Stop();
         Pid_Reset(&g_speed_pid);
@@ -388,7 +370,6 @@ void StartSpeedPidTask(void *argument)
       }
       else
       {
-        int32_t target_cps = g_target_speed_cps;
         int32_t feedback_cps =
             Encoder_DeltaToCountsPerSecond(Encoder_UpdatePositionCounts());
         uint8_t pwm = Pid_Update(&g_speed_pid, (float)target_cps,
@@ -396,7 +377,7 @@ void StartSpeedPidTask(void *argument)
 
         g_feedback_speed_cps = feedback_cps;
         g_pwm_output = pwm;
-        Motor_SetOutput(direction, pwm);
+        Motor_SetOutput(1, pwm);
       }
     }
 
@@ -530,58 +511,14 @@ void StartPidTuningTask(void *argument)
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 
-static uint8_t Potentiometer_ToSpeedPercent(uint32_t adc_value)
+static int32_t Adc_ToTargetSpeedCountsPerSecond(uint32_t adc_value)
 {
-  uint32_t active_value;
-  uint32_t active_range;
-  uint32_t speed;
-
-  if ((adc_value >= (ADC_CENTER - ADC_DEADBAND)) &&
-      (adc_value <= (ADC_CENTER + ADC_DEADBAND)))
+  if (adc_value > ADC_FULL_SCALE)
   {
-    return 0U;
+    adc_value = ADC_FULL_SCALE;
   }
 
-  if (adc_value < ADC_CENTER)
-  {
-    active_value = (ADC_CENTER - ADC_DEADBAND) - adc_value;
-    active_range = ADC_CENTER - ADC_DEADBAND;
-  }
-  else
-  {
-    active_value = adc_value - (ADC_CENTER + ADC_DEADBAND);
-    active_range = ADC_FULL_SCALE - (ADC_CENTER + ADC_DEADBAND);
-  }
-
-  if (active_range == 0U)
-  {
-    return 0U;
-  }
-
-  speed = (active_value * MOTOR_SPEED_MAX) / active_range;
-  if (speed > MOTOR_SPEED_MAX)
-  {
-    speed = MOTOR_SPEED_MAX;
-  }
-
-  return (uint8_t)speed;
-}
-
-static int8_t Potentiometer_ToDirection(uint32_t adc_value,
-                                        uint8_t speed_percent)
-{
-  if (speed_percent == 0U)
-  {
-    return 0;
-  }
-
-  return (adc_value < ADC_CENTER) ? -1 : 1;
-}
-
-static int32_t SpeedPercent_ToCountsPerSecond(uint8_t speed_percent)
-{
-  return (int32_t)(((float)speed_percent * TARGET_SPEED_MAX_CPS)
-                  / (float)MOTOR_SPEED_MAX);
+  return (int32_t)((adc_value * TARGET_SPEED_MAX_CPS) / ADC_FULL_SCALE);
 }
 
 static uint16_t Adc_ToTargetPositionDegrees(uint32_t adc_value)
@@ -723,19 +660,16 @@ static void Vofa_SendTelemetry(void)
   char tx_buffer[96];
   int length = snprintf(tx_buffer, sizeof(tx_buffer),
                         /*
-                         * CSV columns:
-                         * 1 mode, 2 target speed percent,
-                         * 3 target speed, 4 feedback speed,
-                         * 5 PWM output, 6 direction,
-                         * 7 target position degrees, 8 feedback position degrees.
+                         * FireWater data columns:
+                         * 1 mode, 2 target speed, 3 feedback speed,
+                         * 4 PWM output, 5 target position degrees,
+                         * 6 feedback position degrees.
                          */
-                        "%u,%u,%ld,%ld,%u,%d,%u,%u\r\n",
+                        "d: %u,%ld,%ld,%u,%u,%u\r\n",
                         (uint8_t)g_control_mode,
-                        g_target_percent,
                         (long)g_target_speed_cps,
                         (long)g_feedback_speed_cps,
                         g_pwm_output,
-                        g_target_direction,
                         g_target_position_degrees,
                         g_feedback_position_degrees);
 

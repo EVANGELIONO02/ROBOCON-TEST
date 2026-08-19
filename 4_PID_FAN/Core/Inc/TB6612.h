@@ -3,6 +3,8 @@
 #define __TB6612_H_
 
 #include <stdint.h>
+#include "main.h"
+#include "gpio.h"
 
 /**
  * @brief 衰减模式枚举

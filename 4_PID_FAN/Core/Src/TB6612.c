@@ -52,9 +52,9 @@ void TB6612_Forward(uint8_t speed)
 {
     if (speed > MAX_SPEED)
         speed = MAX_SPEED;
-    
+
     HAL_GPIO_WritePin(AIN1_GPIO_Port, AIN1_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(BIN1_GPIO_Port, BIN1_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(AIN2_GPIO_Port, AIN2_Pin, GPIO_PIN_RESET);
     __SetPWMA(speed);
 }
 
@@ -66,9 +66,9 @@ void TB6612_Backward(uint8_t speed)
 {
     if (speed > MAX_SPEED)
         speed = MAX_SPEED;
-    
+
     HAL_GPIO_WritePin(AIN1_GPIO_Port, AIN1_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(BIN1_GPIO_Port, BIN1_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(AIN2_GPIO_Port, AIN2_Pin, GPIO_PIN_SET);
     __SetPWMA(speed);
 }
 
@@ -79,7 +79,7 @@ void TB6612_Brake(void)
 {
     __SetPWMA(MAX_SPEED);
     HAL_GPIO_WritePin(AIN1_GPIO_Port, AIN1_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(BIN1_GPIO_Port, BIN1_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(AIN2_GPIO_Port, AIN2_Pin, GPIO_PIN_SET);
 }
 
 /**
@@ -89,5 +89,5 @@ void TB6612_Coast(void)
 {
     __SetPWMA(0);
     HAL_GPIO_WritePin(AIN1_GPIO_Port, AIN1_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(BIN1_GPIO_Port, BIN1_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(AIN2_GPIO_Port, AIN2_Pin, GPIO_PIN_RESET);
 }
