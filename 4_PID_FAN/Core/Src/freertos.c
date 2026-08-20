@@ -60,26 +60,20 @@ typedef struct {
 #define SPEED_PID_PERIOD_MS     10U
 #define POSITION_PID_PERIOD_MS  10U
 #define VOFA_SEND_PERIOD_MS     50U
-#define PID_TUNING_STACK_WORDS  256U
-#define PID_COMMAND_MAX_LENGTH  48U
-#define UART_RX_QUEUE_LENGTH    64U
 
 #define TARGET_SPEED_MAX_CPS    1000.0f
 #define PID_OUTPUT_MAX          100.0f
-#define ENCODER_COUNTS_PER_REV  1320L
+#define ENCODER_COUNTS_PER_REV  10000L
 #define POSITION_TOLERANCE_DEG  2U
-#define POSITION_MIN_PWM        20U
+#define POSITION_MIN_PWM        1U
 
 #define SPEED_PID_KP            0.00f
 #define SPEED_PID_KI            0.00f
 #define SPEED_PID_KD            0.00f
-#define POSITION_PID_KP         0.80f
+#define POSITION_PID_KP         0.40f
 #define POSITION_PID_KI         0.00f
-#define POSITION_PID_KD         0.00f
+#define POSITION_PID_KD         0.02f
 #define PID_INTEGRAL_LIMIT      3000.0f
-#define PID_KP_MAX               100.0f
-#define PID_KI_MAX               100.0f
-#define PID_KD_MAX               100.0f
 
 /* USER CODE END PD */
 
@@ -104,8 +98,6 @@ static volatile uint8_t g_pwm_output = 0U;
 
 static int16_t g_encoder_speed_last_count = 0;
 static int32_t g_encoder_position_counts = 0;
-static uint8_t g_uart_rx_byte = 0U;
-static osMessageQueueId_t g_uart_rx_queue = NULL;
 static PidController g_speed_pid = {
   .kp = SPEED_PID_KP,
   .ki = SPEED_PID_KI,
@@ -159,13 +151,6 @@ const osThreadAttr_t vofaTelemetryTask_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
-/* Definitions for pidTuningTask */
-osThreadId_t pidTuningTaskHandle;
-const osThreadAttr_t pidTuningTask_attributes = {
-  .name = "pidTuningTask",
-  .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityBelowNormal,
-};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -183,8 +168,6 @@ static void Controllers_ResetAll(void);
 static void Motor_SetOutput(int8_t direction, uint8_t speed);
 static void Motor_Stop(void);
 static void Vofa_SendTelemetry(void);
-static void PidTuning_ProcessCommand(char *command);
-static uint8_t PidTuning_IsValidParameter(float value, float maximum);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -193,7 +176,6 @@ void StartModeSwitchTask(void *argument);
 void StartSpeedPidTask(void *argument);
 void StartPositionPidTask(void *argument);
 void StartVofaTelemetryTask(void *argument);
-void StartPidTuningTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -220,8 +202,6 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  g_uart_rx_queue = osMessageQueueNew(UART_RX_QUEUE_LENGTH,
-                                      sizeof(uint8_t), NULL);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -240,17 +220,10 @@ void MX_FREERTOS_Init(void) {
   /* creation of vofaTelemetryTask */
   vofaTelemetryTaskHandle = osThreadNew(StartVofaTelemetryTask, NULL, &vofaTelemetryTask_attributes);
 
-  /* creation of pidTuningTask */
-  pidTuningTaskHandle = osThreadNew(StartPidTuningTask, NULL, &pidTuningTask_attributes);
-
   /* USER CODE BEGIN RTOS_THREADS */
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
-  if (g_uart_rx_queue != NULL)
-  {
-    (void)HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1U);
-  }
   /* USER CODE END RTOS_EVENTS */
 
 }
@@ -456,58 +429,6 @@ void StartVofaTelemetryTask(void *argument)
   /* USER CODE END StartVofaTelemetryTask */
 }
 
-/* USER CODE BEGIN Header_StartPidTuningTask */
-/**
-  * @brief  Receives VOFA+ PID commands from USART1 and updates controllers.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartPidTuningTask */
-void StartPidTuningTask(void *argument)
-{
-  /* USER CODE BEGIN StartPidTuningTask */
-  char command[PID_COMMAND_MAX_LENGTH];
-  uint32_t command_length = 0U;
-  uint8_t rx_byte;
-
-  /* Avoid a busy loop if the FreeRTOS message queue cannot be allocated. */
-  if (g_uart_rx_queue == NULL)
-  {
-    for (;;)
-    {
-      osDelay(1000U);
-    }
-  }
-
-  for(;;)
-  {
-    if (osMessageQueueGet(g_uart_rx_queue, &rx_byte, NULL,
-                          osWaitForever) == osOK)
-    {
-      if ((rx_byte == '\r') || (rx_byte == '\n'))
-      {
-        if (command_length > 0U)
-        {
-          command[command_length] = '\0';
-          PidTuning_ProcessCommand(command);
-          command_length = 0U;
-        }
-      }
-      else if (command_length < (sizeof(command) - 1U))
-      {
-        command[command_length] = (char)rx_byte;
-        command_length++;
-      }
-      else
-      {
-        /* Drop an overlength command and wait for its line terminator. */
-        command_length = 0U;
-      }
-    }
-  }
-  /* USER CODE END StartPidTuningTask */
-}
-
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 
@@ -677,75 +598,6 @@ static void Vofa_SendTelemetry(void)
   {
     (void)HAL_UART_Transmit(&huart1, (uint8_t *)tx_buffer,
                             (uint16_t)length, 10U);
-  }
-}
-
-static void PidTuning_ProcessCommand(char *command)
-{
-  char controller;
-  char extra;
-  float kp;
-  float ki;
-  float kd;
-  PidController *pid = NULL;
-
-  if (sscanf(command, "PID,%c,%f,%f,%f%c",
-             &controller, &kp, &ki, &kd, &extra) != 4)
-  {
-    return;
-  }
-
-  if ((!PidTuning_IsValidParameter(kp, PID_KP_MAX)) ||
-      (!PidTuning_IsValidParameter(ki, PID_KI_MAX)) ||
-      (!PidTuning_IsValidParameter(kd, PID_KD_MAX)))
-  {
-    return;
-  }
-
-  if (controller == 'S')
-  {
-    pid = &g_speed_pid;
-  }
-  else if (controller == 'P')
-  {
-    pid = &g_position_pid;
-  }
-  else
-  {
-    return;
-  }
-
-  vTaskSuspendAll();
-  pid->kp = kp;
-  pid->ki = ki;
-  pid->kd = kd;
-  Pid_Reset(pid);
-  (void)xTaskResumeAll();
-}
-
-static uint8_t PidTuning_IsValidParameter(float value, float maximum)
-{
-  return ((value >= 0.0f) && (value <= maximum)) ? 1U : 0U;
-}
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    if (g_uart_rx_queue != NULL)
-    {
-      (void)osMessageQueuePut(g_uart_rx_queue, &g_uart_rx_byte, 0U, 0U);
-    }
-
-    (void)HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1U);
-  }
-}
-
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    (void)HAL_UART_Receive_IT(&huart1, &g_uart_rx_byte, 1U);
   }
 }
 
