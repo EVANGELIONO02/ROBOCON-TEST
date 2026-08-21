@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
+#include "servo.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -270,6 +271,15 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
+
+  #ifdef DEVICE_SLAVE
+  /* 从机端：初始化舵机 */
+  if(Servo_Init() == 0) {
+      // 初始化成功，复位到中心位置
+      Servo_ResetToCenter();
+  }
+  #endif
+
   /* Infinite loop */
   for(;;)
   {
@@ -280,6 +290,116 @@ void StartDefaultTask(void *argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+
+/* ==================== 通用工具函数 ==================== */
+
+/**
+ * @brief 计算校验和
+ * @param data: 数据指针
+ * @param len: 数据长度
+ * @return 校验和
+ */
+uint8_t CalculateChecksum(uint8_t *data, uint8_t len)
+{
+    uint8_t sum = 0;
+    for(uint8_t i = 0; i < len; i++) {
+        sum += data[i];
+    }
+    return sum & 0xFF;
+}
+
+/* ==================== 从机端任务实现 ==================== */
+#ifdef DEVICE_SLAVE
+
+/**
+ * @brief 数据接收任务 - 接收并解析蓝牙数据
+ * @param argument: 未使用
+ */
+void Task_DataReceive(void *argument)
+{
+    extern UART_HandleTypeDef huart1;
+    uint8_t rx_byte;
+    ControlData_t ctrl_data;
+
+    for(;;)
+    {
+        // 轮询接收单字节数据
+        if(HAL_UART_Receive(&huart1, &rx_byte, 1, 100) == HAL_OK)
+        {
+            // 状态机解析数据包
+            if(g_rx_index == 0) {
+                // 等待帧头
+                if(rx_byte == BT_FRAME_HEADER) {
+                    g_rx_buffer[g_rx_index++] = rx_byte;
+                }
+            }
+            else if(g_rx_index < BT_PACKET_SIZE) {
+                // 接收数据
+                g_rx_buffer[g_rx_index++] = rx_byte;
+
+                // 接收完整数据包
+                if(g_rx_index == BT_PACKET_SIZE) {
+                    // 验证帧尾
+                    if(g_rx_buffer[5] == BT_FRAME_TAIL) {
+                        // 验证校验和
+                        uint8_t calc_checksum = CalculateChecksum(&g_rx_buffer[1], 3);
+                        if(calc_checksum == g_rx_buffer[4]) {
+                            // 解析数据
+                            ctrl_data.mode = g_rx_buffer[1];
+                            ctrl_data.yaw = g_rx_buffer[2];
+                            ctrl_data.pitch = g_rx_buffer[3];
+                            ctrl_data.checksum = g_rx_buffer[4];
+
+                            // 发送到舵机控制任务
+                            osMessageQueuePut(ControlDataQueueHandle, &ctrl_data, 0, 0);
+                        }
+                    }
+                    // 重置接收索引
+                    g_rx_index = 0;
+                }
+            }
+        }
+
+        osDelay(1);
+    }
+}
+
+/**
+ * @brief 舵机控制任务 - 控制舵机运动
+ * @param argument: 未使用
+ */
+void Task_ServoControl(void *argument)
+{
+    ControlData_t ctrl_data;
+
+    for(;;)
+    {
+        // 等待控制数据
+        if(osMessageQueueGet(ControlDataQueueHandle, &ctrl_data, NULL, osWaitForever) == osOK)
+        {
+            // 限幅检查
+            if(ctrl_data.yaw > SERVO_ANGLE_MAX) {
+                ctrl_data.yaw = SERVO_ANGLE_MAX;
+            }
+            if(ctrl_data.pitch > SERVO_ANGLE_MAX) {
+                ctrl_data.pitch = SERVO_ANGLE_MAX;
+            }
+
+            // 设置舵机角度
+            Servo_SetAngle(SERVO_YAW, ctrl_data.yaw);
+            Servo_SetAngle(SERVO_PITCH, ctrl_data.pitch);
+        }
+    }
+}
+
+#endif  // DEVICE_SLAVE
+
+/* ==================== 主控端任务实现 ==================== */
+#ifdef DEVICE_MASTER
+
+// TODO: 主控端任务待实现
+
+#endif  // DEVICE_MASTER
 
 /* USER CODE END Application */
 
