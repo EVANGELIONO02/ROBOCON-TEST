@@ -49,11 +49,15 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pin : Mode_switch_Pin */
+  /*Configure GPIO pin : Mode_switch_Pin (PB0) - 外部中断模式 */
   GPIO_InitStruct.Pin = Mode_switch_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;  // 下降沿触发中断
+  GPIO_InitStruct.Pull = GPIO_PULLUP;           // 内部上拉
   HAL_GPIO_Init(Mode_switch_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init - PB0对应EXTI0中断 */
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
 }
 

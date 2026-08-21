@@ -22,6 +22,7 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "cmsis_os.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -66,7 +67,9 @@ extern UART_HandleTypeDef huart1;
 extern TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN EV */
-
+#ifdef DEVICE_MASTER
+extern osSemaphoreId_t ModeSwitchSemHandle;  // 模式切换信号量
+#endif
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -308,5 +311,41 @@ void USART1_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+/**
+  * @brief This function handles EXTI line0 interrupt (PB0 - Mode Switch Button).
+  */
+void EXTI0_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI0_IRQn 0 */
+
+  /* USER CODE END EXTI0_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+  /* USER CODE BEGIN EXTI0_IRQn 1 */
+
+  /* USER CODE END EXTI0_IRQn 1 */
+}
+
+/**
+  * @brief GPIO EXTI回调函数 - 按键按下时调用
+  * @param GPIO_Pin: 触发中断的引脚编号
+  */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  /* USER CODE BEGIN HAL_GPIO_EXTI_Callback 0 */
+
+  if(GPIO_Pin == GPIO_PIN_0)  // PB0 - Mode_switch
+  {
+    #ifdef DEVICE_MASTER
+    // 主控端：释放模式切换信号量
+    if(ModeSwitchSemHandle != NULL)
+    {
+      osSemaphoreRelease(ModeSwitchSemHandle);
+    }
+    #endif
+  }
+
+  /* USER CODE END HAL_GPIO_EXTI_Callback 0 */
+}
 
 /* USER CODE END 1 */

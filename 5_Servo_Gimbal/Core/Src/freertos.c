@@ -28,24 +28,19 @@
 #include <string.h>
 #include <stdio.h>
 #include "servo.h"
+#include "bluetooth.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-/* 控制模式枚举 */
-typedef enum {
-    MODE_POTENTIOMETER = 0x01,  // 电位器控制模式
-    MODE_GYROSCOPE = 0x02       // 陀螺仪控制模式
-} ControlMode_t;
+/* 控制模式枚举（使用蓝牙驱动的定义） */
+typedef BT_ControlMode_t ControlMode_t;
+#define MODE_POTENTIOMETER BT_MODE_POTENTIOMETER
+#define MODE_GYROSCOPE BT_MODE_GYROSCOPE
 
-/* 控制数据结构 */
-typedef struct {
-    uint8_t mode;      // 控制模式
-    uint8_t yaw;       // 水平角度 (0-180)
-    uint8_t pitch;     // 俯仰角度 (0-180)
-    uint8_t checksum;  // 校验和
-} ControlData_t;
+/* 控制数据结构（使用蓝牙驱动的定义） */
+typedef BT_ControlPacket_t ControlData_t;
 
 /* USER CODE END PTD */
 
@@ -273,11 +268,17 @@ void StartDefaultTask(void *argument)
   /* USER CODE BEGIN StartDefaultTask */
 
   #ifdef DEVICE_SLAVE
-  /* 从机端：初始化舵机 */
+  /* 从机端：初始化舵机和蓝牙 */
   if(Servo_Init() == 0) {
       // 初始化成功，复位到中心位置
       Servo_ResetToCenter();
   }
+  BT_Init();
+  #endif
+
+  #ifdef DEVICE_MASTER
+  /* 主控端：初始化蓝牙 */
+  BT_Init();
   #endif
 
   /* Infinite loop */
@@ -291,23 +292,6 @@ void StartDefaultTask(void *argument)
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 
-/* ==================== 通用工具函数 ==================== */
-
-/**
- * @brief 计算校验和
- * @param data: 数据指针
- * @param len: 数据长度
- * @return 校验和
- */
-uint8_t CalculateChecksum(uint8_t *data, uint8_t len)
-{
-    uint8_t sum = 0;
-    for(uint8_t i = 0; i < len; i++) {
-        sum += data[i];
-    }
-    return sum & 0xFF;
-}
-
 /* ==================== 从机端任务实现 ==================== */
 #ifdef DEVICE_SLAVE
 
@@ -317,46 +301,29 @@ uint8_t CalculateChecksum(uint8_t *data, uint8_t len)
  */
 void Task_DataReceive(void *argument)
 {
-    extern UART_HandleTypeDef huart1;
     uint8_t rx_byte;
     ControlData_t ctrl_data;
 
     for(;;)
     {
-        // 轮询接收单字节数据
-        if(HAL_UART_Receive(&huart1, &rx_byte, 1, 100) == HAL_OK)
+        // 非阻塞接收单字节
+        if(BT_ReceiveByte(&rx_byte) == 0)
         {
             // 状态机解析数据包
-            if(g_rx_index == 0) {
-                // 等待帧头
-                if(rx_byte == BT_FRAME_HEADER) {
-                    g_rx_buffer[g_rx_index++] = rx_byte;
-                }
+            BT_RxState_t state = BT_ParseByte(rx_byte, &ctrl_data);
+
+            if(state == BT_RX_STATE_COMPLETE)
+            {
+                // 数据包接收完成，发送到舵机控制任务
+                osMessageQueuePut(ControlDataQueueHandle, &ctrl_data, 0, 0);
+
+                // 重置状态机，准备接收下一包
+                BT_ResetRxState();
             }
-            else if(g_rx_index < BT_PACKET_SIZE) {
-                // 接收数据
-                g_rx_buffer[g_rx_index++] = rx_byte;
-
-                // 接收完整数据包
-                if(g_rx_index == BT_PACKET_SIZE) {
-                    // 验证帧尾
-                    if(g_rx_buffer[5] == BT_FRAME_TAIL) {
-                        // 验证校验和
-                        uint8_t calc_checksum = CalculateChecksum(&g_rx_buffer[1], 3);
-                        if(calc_checksum == g_rx_buffer[4]) {
-                            // 解析数据
-                            ctrl_data.mode = g_rx_buffer[1];
-                            ctrl_data.yaw = g_rx_buffer[2];
-                            ctrl_data.pitch = g_rx_buffer[3];
-                            ctrl_data.checksum = g_rx_buffer[4];
-
-                            // 发送到舵机控制任务
-                            osMessageQueuePut(ControlDataQueueHandle, &ctrl_data, 0, 0);
-                        }
-                    }
-                    // 重置接收索引
-                    g_rx_index = 0;
-                }
+            else if(state == BT_RX_STATE_ERROR)
+            {
+                // 接收出错，重置状态机
+                BT_ResetRxState();
             }
         }
 
@@ -397,7 +364,113 @@ void Task_ServoControl(void *argument)
 /* ==================== 主控端任务实现 ==================== */
 #ifdef DEVICE_MASTER
 
-// TODO: 主控端任务待实现
+/**
+ * @brief ADC采集任务 - 读取两个电位器的值
+ * @param argument: 未使用
+ */
+void Task_ADC_Read(void *argument)
+{
+    extern ADC_HandleTypeDef hadc1;
+    uint16_t adc_values[2];  // 存储ADC1的双通道数据
+
+    // 启动ADC的DMA循环采集
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_values, 2);
+
+    for(;;)
+    {
+        // ADC已配置为DMA循环模式，数据自动更新到adc_values
+        // 将ADC值(0-4095)映射到角度(0-180)
+        g_adc_yaw_raw = adc_values[0];
+        g_adc_pitch_raw = adc_values[1];
+
+        g_adc_yaw_angle = (uint8_t)((g_adc_yaw_raw * 180) / 4095);
+        g_adc_pitch_angle = (uint8_t)((g_adc_pitch_raw * 180) / 4095);
+
+        osDelay(20);  // 50Hz采样率
+    }
+}
+
+/**
+ * @brief MPU6050读取任务 - 读取陀螺仪姿态
+ * @param argument: 未使用
+ */
+void Task_MPU6050_Read(void *argument)
+{
+    // TODO: 初始化MPU6050
+    // MPU6050_Init();
+
+    for(;;)
+    {
+        // TODO: 读取MPU6050数据并进行姿态解算
+        // MPU6050_Read_All(&ax, &ay, &az, &gx, &gy, &gz);
+        // 进行互补滤波或卡尔曼滤波
+        // g_mpu_yaw = ...;
+        // g_mpu_pitch = ...;
+
+        // 映射到0-180度
+        // g_mpu_yaw_angle = (uint8_t)((g_mpu_yaw + 90.0f));
+        // g_mpu_pitch_angle = (uint8_t)((g_mpu_pitch + 90.0f));
+
+        // 临时测试值
+        g_mpu_yaw_angle = 90;
+        g_mpu_pitch_angle = 90;
+
+        osDelay(10);  // 100Hz采样率
+    }
+}
+
+/**
+ * @brief 数据发送任务 - 通过蓝牙发送控制数据
+ * @param argument: 未使用
+ */
+void Task_DataSend(void *argument)
+{
+    uint8_t yaw, pitch;
+    BT_ControlMode_t mode;
+
+    for(;;)
+    {
+        // 根据当前模式选择数据源
+        if(g_control_mode == MODE_POTENTIOMETER) {
+            mode = BT_MODE_POTENTIOMETER;
+            yaw = g_adc_yaw_angle;
+            pitch = g_adc_pitch_angle;
+        } else {
+            mode = BT_MODE_GYROSCOPE;
+            yaw = g_mpu_yaw_angle;
+            pitch = g_mpu_pitch_angle;
+        }
+
+        // 发送数据包
+        BT_SendPacket(mode, yaw, pitch);
+
+        osDelay(50);  // 20Hz发送频率
+    }
+}
+
+/**
+ * @brief 模式切换任务 - 处理电位器/陀螺仪模式切换
+ * @param argument: 未使用
+ */
+void Task_ModeSwitch(void *argument)
+{
+    for(;;)
+    {
+        // 等待按钮信号量（在GPIO中断中释放）
+        if(osSemaphoreAcquire(ModeSwitchSemHandle, osWaitForever) == osOK)
+        {
+            // 切换模式
+            if(g_control_mode == MODE_POTENTIOMETER) {
+                g_control_mode = MODE_GYROSCOPE;
+            } else {
+                g_control_mode = MODE_POTENTIOMETER;
+            }
+
+            // TODO: LED指示模式
+            // 例如：LED闪烁表示当前模式
+        }
+    }
+}
 
 #endif  // DEVICE_MASTER
 
