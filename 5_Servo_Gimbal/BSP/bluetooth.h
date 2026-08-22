@@ -103,7 +103,6 @@ int8_t BT_SendPacket(BT_ControlMode_t mode, uint8_t yaw, uint8_t pitch);
  * @param  timeout_ms: 超时时间（毫秒）
  * @retval 0: 成功, -1: 失败, -2: 超时
  */
-int8_t BT_ReceivePacket(BT_ControlPacket_t *packet, uint32_t timeout_ms);
 
 /**
  * @brief  接收单字节数据（从机端使用，非阻塞式）

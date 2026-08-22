@@ -15,7 +15,6 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "servo.h"
-#include <math.h>
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
@@ -23,7 +22,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 // 舵机状态标志
-static uint8_t servo_initialized = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static uint16_t Servo_AngleToPulse(uint8_t angle);
@@ -94,8 +92,6 @@ int8_t Servo_Init(void)
     // 初始化到中心位置（90°）
     Servo_SetAngle(SERVO_YAW, SERVO_ANGLE_CENTER);
     Servo_SetAngle(SERVO_PITCH, SERVO_ANGLE_CENTER);
-
-    servo_initialized = 1;
 
     return 0;
 }
@@ -192,7 +188,6 @@ void Servo_StopAll(void)
 {
     HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
     HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2);
-    servo_initialized = 0;
 }
 
 /**

@@ -25,8 +25,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <string.h>
-#include <stdio.h>
 #include "servo.h"
 #include "bluetooth.h"
 /* USER CODE END Includes */
@@ -48,14 +46,6 @@ typedef BT_ControlPacket_t ControlData_t;
 /* USER CODE BEGIN PD */
 
 /* 蓝牙数据包协议 */
-#define BT_FRAME_HEADER    0xAA
-#define BT_FRAME_TAIL      0x55
-#define BT_PACKET_SIZE     6
-
-/* 舵机角度范围 */
-#define SERVO_ANGLE_MIN    0
-#define SERVO_ANGLE_MAX    180
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -99,9 +89,6 @@ osSemaphoreId_t ModeSwitchSemHandle;
 #ifdef DEVICE_SLAVE
 
 /* 接收数据缓冲区 */
-static uint8_t g_rx_buffer[BT_PACKET_SIZE];
-static uint8_t g_rx_index = 0;
-
 /* 控制数据 */
 static ControlData_t g_control_data = {0};
 
@@ -144,8 +131,6 @@ void Task_ServoPitch(void *argument);         // 俯仰舵机控制任务
 #endif
 
 /* ==================== 通用工具函数 ==================== */
-uint8_t CalculateChecksum(uint8_t *data, uint8_t len);
-
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -294,7 +279,6 @@ void StartDefaultTask(void *argument)
   #ifdef DEVICE_SLAVE
   /* 从机端：初始化舵机和蓝牙 */
   Servo_Init();
-  Servo_ResetToCenter();
   BT_Init();
   #endif
 

@@ -103,34 +103,6 @@ int8_t BT_SendPacket(BT_ControlMode_t mode, uint8_t yaw, uint8_t pitch)
  * @param  timeout_ms: 超时时间（毫秒）
  * @retval 0: 成功, -1: 失败, -2: 超时
  */
-int8_t BT_ReceivePacket(BT_ControlPacket_t *packet, uint32_t timeout_ms)
-{
-    uint8_t rx_byte;
-    uint32_t start_tick = HAL_GetTick();
-
-    // 重置状态机
-    BT_ResetRxState();
-
-    while ((HAL_GetTick() - start_tick) < timeout_ms)
-    {
-        // 尝试接收一个字节
-        if (HAL_UART_Receive(&huart1, &rx_byte, 1, 10) == HAL_OK)
-        {
-            // 状态机解析
-            BT_RxState_t state = BT_ParseByte(rx_byte, packet);
-
-            if (state == BT_RX_STATE_COMPLETE) {
-                return 0;  // 接收成功
-            }
-            else if (state == BT_RX_STATE_ERROR) {
-                BT_ResetRxState();  // 出错重置
-            }
-        }
-    }
-
-    return -2;  // 超时
-}
-
 /**
  * @brief  接收单字节数据（从机端使用，非阻塞式）
  * @param  data: 接收数据指针
