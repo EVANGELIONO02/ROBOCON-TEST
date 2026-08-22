@@ -107,10 +107,12 @@ static ControlData_t g_control_data = {0};
 
 /* 任务句柄 */
 osThreadId_t DataReceiveTaskHandle;
-osThreadId_t ServoControlTaskHandle;
+osThreadId_t ServoYawTaskHandle;
+osThreadId_t ServoPitchTaskHandle;
 
 /* 消息队列句柄 */
-osMessageQueueId_t ControlDataQueueHandle;
+osMessageQueueId_t YawAngleQueueHandle;    // 水平角度队列
+osMessageQueueId_t PitchAngleQueueHandle;  // 俯仰角度队列
 
 #endif  // DEVICE_SLAVE
 
@@ -120,7 +122,7 @@ osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityLow,
 };
 
 /* Private function prototypes -----------------------------------------------*/
@@ -137,7 +139,8 @@ void Task_ModeSwitch(void *argument);         // 模式切换任务
 /* ==================== 从机端任务函数 ==================== */
 #ifdef DEVICE_SLAVE
 void Task_DataReceive(void *argument);        // 数据接收任务
-void Task_ServoControl(void *argument);       // 舵机控制任务
+void Task_ServoYaw(void *argument);           // 水平舵机控制任务
+void Task_ServoPitch(void *argument);         // 俯仰舵机控制任务
 #endif
 
 /* ==================== 通用工具函数 ==================== */
@@ -178,8 +181,15 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   #ifdef DEVICE_SLAVE
-  /* 创建控制数据消息队列 */
-  ControlDataQueueHandle = osMessageQueueNew(5, sizeof(ControlData_t), NULL);
+  /* 创建角度控制消息队列 */
+  YawAngleQueueHandle = osMessageQueueNew(10, sizeof(uint8_t), NULL);
+  PitchAngleQueueHandle = osMessageQueueNew(10, sizeof(uint8_t), NULL);
+
+  // 检查队列创建是否成功
+  if(YawAngleQueueHandle == NULL || PitchAngleQueueHandle == NULL) {
+    // 队列创建失败，进入死循环
+    while(1);
+  }
   #endif
   /* USER CODE END RTOS_QUEUES */
 
@@ -234,17 +244,31 @@ void MX_FREERTOS_Init(void) {
   const osThreadAttr_t recv_task_attributes = {
     .name = "DataReceiveTask",
     .stack_size = 256 * 4,
-    .priority = (osPriority_t) osPriorityHigh,
+    .priority = (osPriority_t) osPriorityRealtime,
   };
   DataReceiveTaskHandle = osThreadNew(Task_DataReceive, NULL, &recv_task_attributes);
 
-  /* 舵机控制任务 */
-  const osThreadAttr_t servo_task_attributes = {
-    .name = "ServoControlTask",
+  /* 水平舵机控制任务 */
+  const osThreadAttr_t yaw_task_attributes = {
+    .name = "ServoYawTask",
     .stack_size = 256 * 4,
-    .priority = (osPriority_t) osPriorityRealtime,
+    .priority = (osPriority_t) osPriorityHigh,
   };
-  ServoControlTaskHandle = osThreadNew(Task_ServoControl, NULL, &servo_task_attributes);
+  ServoYawTaskHandle = osThreadNew(Task_ServoYaw, NULL, &yaw_task_attributes);
+
+  /* 俯仰舵机控制任务 */
+  const osThreadAttr_t pitch_task_attributes = {
+    .name = "ServoPitchTask",
+    .stack_size = 256 * 4,
+    .priority = (osPriority_t) osPriorityHigh,
+  };
+  ServoPitchTaskHandle = osThreadNew(Task_ServoPitch, NULL, &pitch_task_attributes);
+
+  // 检查任务创建是否成功
+  if(DataReceiveTaskHandle == NULL || ServoYawTaskHandle == NULL || ServoPitchTaskHandle == NULL) {
+    // 任务创建失败，进入死循环
+    while(1);
+  }
 
   #endif  // DEVICE_SLAVE
 
@@ -269,10 +293,8 @@ void StartDefaultTask(void *argument)
 
   #ifdef DEVICE_SLAVE
   /* 从机端：初始化舵机和蓝牙 */
-  if(Servo_Init() == 0) {
-      // 初始化成功，复位到中心位置
-      Servo_ResetToCenter();
-  }
+  Servo_Init();
+  Servo_ResetToCenter();
   BT_Init();
   #endif
 
@@ -304,6 +326,8 @@ void Task_DataReceive(void *argument)
     uint8_t rx_byte;
     ControlData_t ctrl_data;
 
+    osDelay(100);  // 等待初始化完成
+
     for(;;)
     {
         // 非阻塞接收单字节
@@ -314,15 +338,20 @@ void Task_DataReceive(void *argument)
 
             if(state == BT_RX_STATE_COMPLETE)
             {
-                // 数据包接收完成，发送到舵机控制任务
-                osMessageQueuePut(ControlDataQueueHandle, &ctrl_data, 0, 0);
+                // 数据包接收完成，直接控制舵机
+                Servo_SetAngle(SERVO_YAW, ctrl_data.yaw);
+                Servo_SetAngle(SERVO_PITCH, ctrl_data.pitch);
 
-                // 重置状态机，准备接收下一包
+                // 发送到队列供其他任务使用
+                osMessageQueuePut(YawAngleQueueHandle, &ctrl_data.yaw, 0, 0);
+                osMessageQueuePut(PitchAngleQueueHandle, &ctrl_data.pitch, 0, 0);
+
+                // 重置状态机
                 BT_ResetRxState();
             }
             else if(state == BT_RX_STATE_ERROR)
             {
-                // 接收出错，重置状态机
+                // 接收出错，重置
                 BT_ResetRxState();
             }
         }
@@ -332,30 +361,48 @@ void Task_DataReceive(void *argument)
 }
 
 /**
- * @brief 舵机控制任务 - 控制舵机运动
+ * @brief 水平舵机控制任务 - 独立控制Yaw舵机
  * @param argument: 未使用
  */
-void Task_ServoControl(void *argument)
+void Task_ServoYaw(void *argument)
 {
-    ControlData_t ctrl_data;
+    uint8_t yaw_angle;
+    osStatus_t status;
 
     for(;;)
     {
-        // 等待控制数据
-        if(osMessageQueueGet(ControlDataQueueHandle, &ctrl_data, NULL, osWaitForever) == osOK)
-        {
-            // 限幅检查
-            if(ctrl_data.yaw > SERVO_ANGLE_MAX) {
-                ctrl_data.yaw = SERVO_ANGLE_MAX;
-            }
-            if(ctrl_data.pitch > SERVO_ANGLE_MAX) {
-                ctrl_data.pitch = SERVO_ANGLE_MAX;
-            }
+        // 等待水平角度数据
+        status = osMessageQueueGet(YawAngleQueueHandle, &yaw_angle, NULL, 100);
 
-            // 设置舵机角度
-            Servo_SetAngle(SERVO_YAW, ctrl_data.yaw);
-            Servo_SetAngle(SERVO_PITCH, ctrl_data.pitch);
+        if(status == osOK)
+        {
+            Servo_SetAngle(SERVO_YAW, yaw_angle);
         }
+
+        osDelay(10);
+    }
+}
+
+/**
+ * @brief 俯仰舵机控制任务 - 独立控制Pitch舵机
+ * @param argument: 未使用
+ */
+void Task_ServoPitch(void *argument)
+{
+    uint8_t pitch_angle;
+    osStatus_t status;
+
+    for(;;)
+    {
+        // 等待俯仰角度数据
+        status = osMessageQueueGet(PitchAngleQueueHandle, &pitch_angle, NULL, 100);
+
+        if(status == osOK)
+        {
+            Servo_SetAngle(SERVO_PITCH, pitch_angle);
+        }
+
+        osDelay(10);
     }
 }
 
@@ -465,9 +512,6 @@ void Task_ModeSwitch(void *argument)
             } else {
                 g_control_mode = MODE_POTENTIOMETER;
             }
-
-            // TODO: LED指示模式
-            // 例如：LED闪烁表示当前模式
         }
     }
 }

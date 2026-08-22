@@ -27,6 +27,11 @@ static uint8_t rx_buffer[BT_PACKET_SIZE];
 static uint8_t rx_index = 0;
 static BT_RxState_t rx_state = BT_RX_STATE_IDLE;
 
+// DMA循环接收缓冲区
+#define DMA_RX_BUFFER_SIZE  64
+static uint8_t dma_rx_buffer[DMA_RX_BUFFER_SIZE];
+static uint16_t dma_rx_read_pos = 0;
+
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 
@@ -41,11 +46,17 @@ int8_t BT_Init(void)
 {
     // 清空接收缓冲区
     memset(rx_buffer, 0, BT_PACKET_SIZE);
+    memset(dma_rx_buffer, 0, DMA_RX_BUFFER_SIZE);
     rx_index = 0;
     rx_state = BT_RX_STATE_IDLE;
+    dma_rx_read_pos = 0;
 
-    // USART1已经在MX_USART1_UART_Init()中初始化
-    // 这里只做软件层面的初始化
+    // 启动UART DMA循环接收
+    HAL_StatusTypeDef status = HAL_UART_Receive_DMA(&huart1, dma_rx_buffer, DMA_RX_BUFFER_SIZE);
+
+    if(status != HAL_OK) {
+        return -1;
+    }
 
     return 0;
 }
@@ -59,7 +70,7 @@ int8_t BT_Init(void)
  */
 int8_t BT_SendPacket(BT_ControlMode_t mode, uint8_t yaw, uint8_t pitch)
 {
-    uint8_t tx_buffer[BT_PACKET_SIZE];
+    static uint8_t tx_buffer[BT_PACKET_SIZE];  // 改为static，避免DMA传输时栈被释放
     uint8_t data_for_checksum[3];
 
     // 角度限幅
@@ -80,8 +91,8 @@ int8_t BT_SendPacket(BT_ControlMode_t mode, uint8_t yaw, uint8_t pitch)
 
     tx_buffer[BT_INDEX_TAIL] = BT_FRAME_TAIL;
 
-    // 发送数据包
-    HAL_StatusTypeDef status = HAL_UART_Transmit(&huart1, tx_buffer, BT_PACKET_SIZE, 100);
+    // 使用DMA发送数据包（不等待完成，避免阻塞）
+    HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(&huart1, tx_buffer, BT_PACKET_SIZE);
 
     return (status == HAL_OK) ? 0 : -1;
 }
@@ -127,8 +138,22 @@ int8_t BT_ReceivePacket(BT_ControlPacket_t *packet, uint32_t timeout_ms)
  */
 int8_t BT_ReceiveByte(uint8_t *data)
 {
-    HAL_StatusTypeDef status = HAL_UART_Receive(&huart1, data, 1, 10);
-    return (status == HAL_OK) ? 0 : -1;
+    // 获取DMA当前写入位置
+    uint16_t dma_write_pos = DMA_RX_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(huart1.hdmarx);
+
+    // 检查是否有新数据
+    if(dma_rx_read_pos != dma_write_pos)
+    {
+        // 读取一个字节
+        *data = dma_rx_buffer[dma_rx_read_pos];
+
+        // 更新读指针（循环缓冲区）
+        dma_rx_read_pos = (dma_rx_read_pos + 1) % DMA_RX_BUFFER_SIZE;
+
+        return 0;
+    }
+
+    return -1;
 }
 
 /**

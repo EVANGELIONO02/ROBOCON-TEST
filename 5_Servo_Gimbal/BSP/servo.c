@@ -103,7 +103,7 @@ int8_t Servo_Init(void)
 /**
  * @brief  设置舵机角度
  * @param  channel: 舵机通道 (SERVO_YAW 或 SERVO_PITCH)
- * @param  angle: 目标角度 (0~180°)
+ * @param  angle: 目标角度 (Yaw: 0~180°, Pitch: 30~150°)
  * @retval 0: 成功, -1: 失败
  */
 int8_t Servo_SetAngle(ServoChannel_t channel, uint8_t angle)
@@ -113,9 +113,19 @@ int8_t Servo_SetAngle(ServoChannel_t channel, uint8_t angle)
         return -1;
     }
 
-    // 角度限幅
-    if (angle > SERVO_ANGLE_MAX) {
-        angle = SERVO_ANGLE_MAX;
+    // 根据通道进行角度限幅
+    if (channel == SERVO_YAW) {
+        // 水平舵机：0~180°
+        if (angle > SERVO_ANGLE_MAX) {
+            angle = SERVO_ANGLE_MAX;
+        }
+    } else if (channel == SERVO_PITCH) {
+        // 俯仰舵机：30~140°
+        if (angle < 30) {
+            angle = 30;
+        } else if (angle > 140) {
+            angle = 140;
+        }
     }
 
     // 转换为脉宽
