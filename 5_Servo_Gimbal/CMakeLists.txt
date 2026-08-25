@@ -47,6 +47,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     BSP/servo.c
     BSP/bluetooth.c
+    BSP/mpu6050.c
 )
 
 # Add include paths

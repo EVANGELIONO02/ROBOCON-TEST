@@ -69,8 +69,8 @@ void Error_Handler(void);
  *       烧录从机端时使用 DEVICE_SLAVE
  *       切换时注释一个，取消注释另一个，然后重新编译
  */
-//#define DEVICE_MASTER    // 主控端（读取传感器，发送数据）
-#define DEVICE_SLAVE   // 从机端（接收数据，控制舵机）
+#define DEVICE_MASTER    // 主控端（读取传感器，发送数据）
+//#define DEVICE_SLAVE   // 从机端（接收数据，控制舵机）
 
 /* 编译时检查：确保只定义了一个角色 */
 #if defined(DEVICE_MASTER) && defined(DEVICE_SLAVE)

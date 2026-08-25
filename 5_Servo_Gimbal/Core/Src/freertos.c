@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include "servo.h"
 #include "bluetooth.h"
+#include "mpu6050.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -428,24 +429,45 @@ void Task_ADC_Read(void *argument)
  */
 void Task_MPU6050_Read(void *argument)
 {
-    // TODO: 初始化MPU6050
-    // MPU6050_Init();
+    MPU6050_RawData_t raw_data;
+    MPU6050_Attitude_t attitude;
+
+    // 初始化MPU6050
+    if(MPU6050_Init() != 0) {
+        // 初始化失败，使用默认值
+        g_mpu_yaw_angle = 90;
+        g_mpu_pitch_angle = 90;
+
+        for(;;) {
+            osDelay(100);
+        }
+    }
 
     for(;;)
     {
-        // TODO: 读取MPU6050数据并进行姿态解算
-        // MPU6050_Read_All(&ax, &ay, &az, &gx, &gy, &gz);
-        // 进行互补滤波或卡尔曼滤波
-        // g_mpu_yaw = ...;
-        // g_mpu_pitch = ...;
+        // 读取原始数据
+        if(MPU6050_ReadRawData(&raw_data) == 0) {
+            // 计算姿态角（dt=10ms=0.01s）
+            MPU6050_CalculateAttitude(&raw_data, &attitude, 0.01f);
 
-        // 映射到0-180度
-        // g_mpu_yaw_angle = (uint8_t)((g_mpu_yaw + 90.0f));
-        // g_mpu_pitch_angle = (uint8_t)((g_mpu_pitch + 90.0f));
+            // 根据实际安装方向调整映射：
+            // ROLL角控制Pitch舵机（前后俯仰）：-90° ~ +90° 映射到 30° ~ 140°
+            // PITCH角控制Yaw舵机（左右倾斜）：-90° ~ +90° 映射到 0° ~ 180°
 
-        // 临时测试值
-        g_mpu_yaw_angle = 90;
-        g_mpu_pitch_angle = 90;
+            // 限幅并映射ROLL角到Pitch舵机
+            float roll_limited = attitude.roll;
+            if(roll_limited < -90.0f) roll_limited = -90.0f;
+            if(roll_limited > 90.0f) roll_limited = 90.0f;
+            g_mpu_pitch_angle = (uint8_t)((roll_limited + 90.0f) * 110.0f / 180.0f + 30.0f);
+
+            // 限幅并映射PITCH角到Yaw舵机
+            float pitch_limited = attitude.pitch;
+            if(pitch_limited < -90.0f) pitch_limited = -90.0f;
+            if(pitch_limited > 90.0f) pitch_limited = 90.0f;
+            g_mpu_yaw_angle = (uint8_t)((pitch_limited + 90.0f));
+        } else {
+            // 读取失败，保持上次的值
+        }
 
         osDelay(10);  // 100Hz采样率
     }
