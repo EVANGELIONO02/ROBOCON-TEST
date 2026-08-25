@@ -51,8 +51,8 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : Mode_switch_Pin (PB0) - 外部中断模式 */
   GPIO_InitStruct.Pin = Mode_switch_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;  // 下降沿触发中断
-  GPIO_InitStruct.Pull = GPIO_PULLUP;           // 内部上拉
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;  // 上升沿触发中断（按键按下）
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;        // 内部下拉
   HAL_GPIO_Init(Mode_switch_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init - PB0对应EXTI0中断 */

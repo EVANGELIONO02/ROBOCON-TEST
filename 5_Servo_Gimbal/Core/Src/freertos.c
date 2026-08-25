@@ -340,7 +340,8 @@ void Task_DataReceive(void *argument)
             }
         }
 
-        osDelay(1);
+        // 高速接收，减少延时避免DMA缓冲区溢出
+        osDelay(0);  // 让出CPU但不强制延时
     }
 }
 
